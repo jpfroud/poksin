@@ -8,8 +8,10 @@ if (process.argv.length !== 3 || !pinnedImage.test(image ?? '')) {
   process.exitCode = 2;
 } else {
   const template = await readFile(new URL('../k8s/openshift/poksin.yaml', import.meta.url), 'utf8');
-  const marker = 'image: poksin-release-image';
-  if (template.split(marker).length !== 2)
-    throw new Error('Image de release attendue une seule fois.');
-  process.stdout.write(template.replace(marker, `image: ${image}`));
+  const imageField = /^([ \t]+image: )(\S+)(?=\r?$)/gm;
+  const fields = [...template.matchAll(imageField)];
+  if (fields.length !== 1 || !pinnedImage.test(fields[0][2])) {
+    throw new Error('Le manifeste doit contenir une seule image épinglée par digest.');
+  }
+  process.stdout.write(template.replace(imageField, (_, prefix) => prefix + image));
 }

@@ -46,7 +46,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: poksin
-          image: poksin-release-image
+          image: docker-all.devops.etat-ge.ch/jpfroud/poksin@sha256:1e842934b9a8abf568975d0c8f44b936e6e81fa5ec463b5698ac6d768cfab860
           imagePullPolicy: IfNotPresent
           env:
             - name: HOST
