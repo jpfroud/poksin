@@ -6,28 +6,45 @@
 
 Configurer `DOCKERHUB_USERNAME` dans les variables GitHub Actions et `DOCKERHUB_TOKEN` dans les secrets du dépôt. Utiliser un jeton Docker Hub dédié à la publication avec les autorisations de lecture et d’écriture. La CI publie dans le dépôt Docker Hub `poksin` du compte configuré. [Jetons Docker Hub](https://docs.docker.com/security/access-tokens/personal-access-tokens/)
 
-Pour OpenShift à l’État de Genève, définir aussi la variable GitHub Actions `OPENSHIFT_IMAGE_REGISTRY` à `registry.example.invalid`. La release joint alors `poksin-openshift-etat-ge.yaml`, qui conserve le chemin du dépôt Docker Hub et le digest de l’image en passant par le registre autorisé par le cluster.
-
 ## Déployer sur OpenShift
 
-Depuis la racine du dépôt, appliquer [le manifeste OpenShift](../k8s/openshift/poksin.yaml). Il pointe vers l’image `v0.1.0` via `registry.example.invalid/jpfroud/poksin` et fixe son digest. À partir d’une session `oc` authentifiée, remplacer `SERVEUR_OPENSHIFT` et `MON_PROJET` par l’URL de l’API et le namespace dans lequel déployer Poksin.
+Depuis la racine du dépôt, utiliser [le manifeste OpenShift](../k8s/openshift/poksin.yaml). Il référence l’image Docker Hub par digest. Dans une session PowerShell où `oc` est authentifié, renseigner l’URL de l’API du cluster et le namespace de destination.
 
-```sh
-oc --server=SERVEUR_OPENSHIFT --namespace=MON_PROJET apply --dry-run=server -f k8s/openshift/poksin.yaml
-oc --server=SERVEUR_OPENSHIFT --namespace=MON_PROJET apply -f k8s/openshift/poksin.yaml
-oc --server=SERVEUR_OPENSHIFT --namespace=MON_PROJET rollout status deployment/poksin --timeout=5m
-oc --server=SERVEUR_OPENSHIFT --namespace=MON_PROJET get route poksin -o jsonpath='{.spec.host}'
+```powershell
+$serveur = Read-Host "URL de l’API OpenShift"
+$projet = Read-Host 'Namespace du projet'
+$manifeste = 'k8s/openshift/poksin.yaml'
+$registre = (Read-Host "Nom d’hôte du registre du cluster, ou Entrée pour Docker Hub").Trim()
+
+if ($registre) {
+    $image = Select-String -LiteralPath $manifeste -Pattern '^\s+image:\s+docker\.io/(\S+)\s*$'
+    $reference = $image.Matches[0].Groups[1].Value
+    $yaml = node scripts/render-openshift.mjs "$registre/$reference"
+    if ($LASTEXITCODE -ne 0) { throw 'Génération du manifeste impossible.' }
+    $manifeste = Join-Path ([IO.Path]::GetTempPath()) 'poksin-openshift-local.yaml'
+    $yaml | Set-Content -LiteralPath $manifeste -Encoding utf8
+}
+
+oc --server=$serveur --namespace=$projet apply --dry-run=server -f $manifeste
+if ($LASTEXITCODE -ne 0) { throw 'Échec du dry-run OpenShift.' }
+oc --server=$serveur --namespace=$projet apply -f $manifeste
+if ($LASTEXITCODE -ne 0) { throw 'Échec du déploiement OpenShift.' }
+oc --server=$serveur --namespace=$projet rollout status deployment/poksin --timeout=5m
+if ($LASTEXITCODE -ne 0) { throw 'Le déploiement Poksin ne devient pas prêt.' }
+oc --server=$serveur --namespace=$projet get route poksin -o jsonpath='{.spec.host}'
 ```
+
+Pour utiliser un registre interne, saisir uniquement son nom d’hôte, sans `https://` ni chemin. La commande conserve le chemin de l’image et son digest, puis écrit le manifeste adapté dans le répertoire temporaire du poste.
 
 Ouvrir l’hôte retourné en HTTPS. `GET /healthz` doit répondre `{"ok":true}`. Partager l’adresse HTTPS de la salle pour tester l’invitation sur deux postes. L’application utilise la Route TLS pour les cookies sécurisés et maintient le flux SSE pour synchroniser les votes.
 
-Pour déployer une version depuis GitHub Releases, télécharger `poksin-openshift-etat-ge.yaml` pour OpenShift à l’État de Genève, ou `poksin-openshift.yaml` pour un cluster qui autorise Docker Hub en accès direct. Dans les commandes `apply`, utiliser le chemin du fichier téléchargé.
+Pour déployer une version publiée, télécharger `poksin-openshift.yaml` depuis la release et utiliser ce fichier comme `$manifeste`. Si le cluster utilise un registre interne, remplacer localement le nom d’hôte sur la ligne `image:` en conservant le chemin de l’image et son digest.
 
-Si le dépôt Docker Hub est privé, créer un secret de pull dans le namespace avec un accès en lecture. Lier ce secret au compte de service `poksin` avec `oc -n MON_PROJET secrets link poksin poksin-dockerhub --for=pull`, puis relancer le déploiement. Utiliser un jeton de pull distinct du jeton de publication GitHub Actions. [Registres privés OpenShift](https://docs.redhat.com/en/documentation/openshift_container_platform/4.20/html/images/managing-images)
+Si le dépôt Docker Hub est privé, créer un secret de pull dans le namespace avec un accès en lecture. Lier ce secret au compte de service `poksin` avec `oc --server=$serveur --namespace=$projet secrets link poksin poksin-dockerhub --for=pull`, puis relancer le déploiement. Utiliser un jeton de pull distinct du jeton de publication GitHub Actions. [Registres privés OpenShift](https://docs.redhat.com/en/documentation/openshift_container_platform/4.20/html/images/managing-images)
 
 ## Stockage et mise à jour
 
-Le pod réserve `1m` de CPU et `128Mi` de mémoire. Sa limite mémoire est de `384Mi`. La `LimitRange` du projet peut fixer une limite CPU par défaut. Sur le lab, elle est de `250m`.
+Le pod réserve `1m` de CPU et `128Mi` de mémoire. Sa limite mémoire est de `384Mi`. La `LimitRange` du projet peut fixer une limite CPU par défaut.
 
 Le manifeste crée le volume `poksin-data` de 1 Gio avec la classe RWO par défaut du projet. Le déploiement utilise un seul pod et la stratégie `Recreate`. Chaque mise à jour interrompt brièvement la connexion et réutilise la base SQLite du PVC. Les navigateurs se reconnectent au démarrage du nouveau pod. Conserver le PVC lors d’une mise à jour ou d’un redéploiement. Sauvegarder la base suivant [le guide d’exploitation](exploitation.md) avant une mise à jour qui change le schéma.
 
