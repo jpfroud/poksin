@@ -11,10 +11,10 @@ Configurer `DOCKERHUB_USERNAME` dans les variables GitHub Actions et `DOCKERHUB_
 Depuis la racine du dépôt, utiliser [le manifeste OpenShift](../k8s/openshift/poksin.yaml). Il référence l’image Docker Hub par digest. Dans une session PowerShell où `oc` est authentifié, renseigner l’URL de l’API du cluster et le namespace de destination.
 
 ```powershell
-$serveur = Read-Host 'URL de l’API OpenShift'
+$serveur = Read-Host "URL de l’API OpenShift"
 $projet = Read-Host 'Namespace du projet'
 $manifeste = 'k8s/openshift/poksin.yaml'
-$registre = (Read-Host 'Nom d’hôte du registre du cluster, ou Entrée pour Docker Hub').Trim()
+$registre = (Read-Host "Nom d’hôte du registre du cluster, ou Entrée pour Docker Hub").Trim()
 
 if ($registre) {
     $image = Select-String -LiteralPath $manifeste -Pattern '^\s+image:\s+docker\.io/(\S+)\s*$'
@@ -26,9 +26,11 @@ if ($registre) {
 }
 
 oc --server=$serveur --namespace=$projet apply --dry-run=server -f $manifeste
-if ($LASTEXITCODE -ne 0) { throw 'Le dry-run OpenShift a échoué.' }
+if ($LASTEXITCODE -ne 0) { throw 'Échec du dry-run OpenShift.' }
 oc --server=$serveur --namespace=$projet apply -f $manifeste
+if ($LASTEXITCODE -ne 0) { throw 'Échec du déploiement OpenShift.' }
 oc --server=$serveur --namespace=$projet rollout status deployment/poksin --timeout=5m
+if ($LASTEXITCODE -ne 0) { throw 'Le déploiement Poksin ne devient pas prêt.' }
 oc --server=$serveur --namespace=$projet get route poksin -o jsonpath='{.spec.host}'
 ```
 
