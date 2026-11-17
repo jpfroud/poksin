@@ -61,9 +61,14 @@ export const roomPath = (id: string) => `/salle/${encodeURIComponent(id)}`;
 
 export function readRoomId(value: string): string | null {
   const clean = value.trim();
-  const path = clean.match(/(?:^|\/)salle\/([a-zA-Z0-9_-]{6,80})(?:[/?#]|$)/);
-  if (path) return path[1];
-  return /^[a-zA-Z0-9_-]{6,80}$/.test(clean) ? clean : null;
+  if (/^[a-f0-9]{24}$/.test(clean)) return clean;
+  try {
+    const url = new URL(clean, 'http://localhost');
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
+    return /^\/salle\/([a-f0-9]{24})\/?$/.exec(url.pathname)?.[1] ?? null;
+  } catch {
+    return null;
+  }
 }
 
 const palette = ['#e1cff8', '#b9e6d1', '#f6dfa0', '#eac6d7', '#cfd8fd'];

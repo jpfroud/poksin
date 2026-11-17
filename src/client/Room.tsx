@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useRef, useState, type FormEvent } from 'react';
 import { errorMessage } from './api';
 import { Icon } from './icons';
 import type { RoomAction, RoomView, Ticket } from './model';
@@ -7,6 +7,9 @@ import { colorStyle, ErrorNotice, Logo } from './ui';
 
 type Dispatch = (action: RoomAction) => Promise<void>;
 type Participant = RoomView['participants'][number];
+type EstimateDraft = { estimate: string; note: string };
+type ResultForm = { draft: EstimateDraft; update: (patch: Partial<EstimateDraft>) => void };
+const emptyDraft = { estimate: '', note: '' };
 
 function initials(name: string) {
   return name
@@ -67,15 +70,16 @@ function RoundResult({
   room,
   busy,
   onAction,
+  resultForm,
 }: {
   room: RoomView;
   busy: boolean;
   onAction: Dispatch;
+  resultForm: ResultForm;
 }) {
   const { round } = room;
   const isHost = room.me.role === 'host';
-  const [estimate, setEstimate] = useState('');
-  const [note, setNote] = useState('');
+  const { estimate, note } = resultForm.draft;
 
   function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -116,7 +120,11 @@ function RoundResult({
       <div className="estimate-fields">
         <label>
           Estimation retenue
-          <select required value={estimate} onChange={(event) => setEstimate(event.target.value)}>
+          <select
+            required
+            value={estimate}
+            onChange={(event) => resultForm.update({ estimate: event.target.value })}
+          >
             <option value="">Choisir une valeur</option>
             {room.deck.cards.map((card) => (
               <option value={card.label} key={card.id}>
@@ -130,7 +138,7 @@ function RoundResult({
           <input
             value={note}
             maxLength={1000}
-            onChange={(event) => setNote(event.target.value)}
+            onChange={(event) => resultForm.update({ note: event.target.value })}
             placeholder="Un point à retenir…"
           />
         </label>
@@ -157,11 +165,13 @@ function VoteBoard({
   activeTicket,
   busy,
   onAction,
+  resultForm,
 }: {
   room: RoomView;
   activeTicket?: Ticket;
   busy: boolean;
   onAction: Dispatch;
+  resultForm: ResultForm;
 }) {
   const { round } = room;
   const isHost = room.me.role === 'host';
@@ -252,7 +262,8 @@ function VoteBoard({
                   aria-pressed={chosen}
                   aria-label={`Voter ${card.label}`}
                   data-testid={`vote-for-${card.id}`}
-                  disabled={busy || !canVote}
+                  disabled={!canVote}
+                  aria-disabled={busy || undefined}
                   onClick={() =>
                     void onAction({
                       type: 'vote',
@@ -292,7 +303,7 @@ function VoteBoard({
           </div>
         </section>
       ) : (
-        <RoundResult key={round.id} room={room} busy={busy} onAction={onAction} />
+        <RoundResult room={room} busy={busy} onAction={onAction} resultForm={resultForm} />
       )}
     </section>
   );
@@ -419,6 +430,8 @@ export function Room({
   const [dialog, setDialog] = useState<'ticket' | 'settings' | 'share' | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [drafts, setDrafts] = useState<Record<string, EstimateDraft>>({});
+  const pendingAction = useRef(false);
   const isHost = room.me.role === 'host';
   const activeTicket =
     room.mode === 'tickets'
@@ -426,15 +439,31 @@ export function Room({
       : undefined;
 
   async function run(action: RoomAction) {
+    if (pendingAction.current) return;
+    pendingAction.current = true;
     setBusy(true);
     setError('');
     try {
       await onAction(action);
+      if (action.type === 'save' || action.type === 'reset') {
+        setDrafts((current) => {
+          if (!(action.roundId in current)) return current;
+          const next = { ...current };
+          delete next[action.roundId];
+          return next;
+        });
+      }
     } catch (caught) {
       setError(errorMessage(caught));
     } finally {
+      pendingAction.current = false;
       setBusy(false);
     }
+  }
+
+  function updateDraft(patch: Partial<EstimateDraft>) {
+    const { id } = room.round;
+    setDrafts((current) => ({ ...current, [id]: { ...(current[id] ?? emptyDraft), ...patch } }));
   }
 
   return (
@@ -478,7 +507,8 @@ export function Room({
               <button
                 type="button"
                 aria-pressed={room.mode === 'tickets'}
-                disabled={busy || !isHost}
+                disabled={!isHost}
+                aria-disabled={busy || undefined}
                 onClick={() => void run({ type: 'mode', mode: 'tickets' })}
               >
                 <Icon name="ticket" size={17} /> Tickets
@@ -486,7 +516,8 @@ export function Room({
               <button
                 type="button"
                 aria-pressed={room.mode === 'free'}
-                disabled={busy || !isHost}
+                disabled={!isHost}
+                aria-disabled={busy || undefined}
                 onClick={() => void run({ type: 'mode', mode: 'free' })}
               >
                 <Icon name="talk" size={17} /> Libre
@@ -505,7 +536,13 @@ export function Room({
         </div>
         <ErrorNotice message={error} />
         <div className="room-columns">
-          <VoteBoard room={room} activeTicket={activeTicket} busy={busy} onAction={run} />
+          <VoteBoard
+            room={room}
+            activeTicket={activeTicket}
+            busy={busy}
+            onAction={run}
+            resultForm={{ draft: drafts[room.round.id] ?? emptyDraft, update: updateDraft }}
+          />
           <TicketRail
             room={room}
             activeTicket={activeTicket}

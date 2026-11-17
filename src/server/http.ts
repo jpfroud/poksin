@@ -144,7 +144,8 @@ async function staticPage(
     response.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
     return response.end('User-agent: *\nDisallow: /salle/\nDisallow: /api/\n');
   }
-  const index = pathname === '/' || roomPage.test(pathname);
+  const validPage = pathname === '/' || roomPage.test(pathname);
+  const index = validPage || pathname === '/salle' || pathname.startsWith('/salle/');
   const asset = /^\/assets\/[a-zA-Z0-9_.-]+$/.test(pathname);
   const icon = /^\/(?:favicon|poksin[-_a-zA-Z0-9]*)(?:\.svg|\.ico|\.png)$/.test(pathname);
   const file = index ? 'index.html' : pathname.slice(1);
@@ -153,7 +154,7 @@ async function staticPage(
     throw new ClientError(404, 'Cette page est introuvable.');
   try {
     const contents = await readFile(join(directory, file));
-    response.writeHead(200, {
+    response.writeHead(index && !validPage ? 404 : 200, {
       'Content-Type': contentType,
       'Content-Length': contents.length,
       ...(asset ? { 'Cache-Control': 'public, max-age=31536000, immutable' } : {}),

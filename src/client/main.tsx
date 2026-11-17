@@ -14,7 +14,9 @@ type Screen = 'home' | 'loading' | 'join' | 'room' | 'missing' | 'error';
 
 function App() {
   const [id, setId] = useState(() => readRoomId(window.location.pathname));
-  const [screen, setScreen] = useState<Screen>(() => (id ? 'loading' : 'home'));
+  const [screen, setScreen] = useState<Screen>(() =>
+    id ? 'loading' : window.location.pathname === '/' ? 'home' : 'missing',
+  );
   const [connected, setConnected] = useState(false);
   const [room, setRoom] = useState<RoomView | null>(null);
   const [failure, setFailure] = useState('');

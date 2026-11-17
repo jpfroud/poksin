@@ -16,3 +16,7 @@ La création, la participation et la reprise se font sans compte. La salle expir
 8. Les actions de vote, d’ajout et de bascule restent accessibles au clavier et sur mobile. La révélation est animée et s’affiche sans mouvement pour les personnes qui le demandent.
 
 Les textes, couleurs, cartes, animations et éléments de marque seront conçus pour Poksin. Le site de référence sert à comprendre le déroulement d’une estimation collaborative.
+
+## Recette de production
+
+`npm run build` puis `npm run test:e2e` rejouent les parcours sur un serveur isolé. Les scénarios ouvrent plusieurs contextes de navigateur pour tester l’invitation, les droits, la révélation manuelle et automatique, l’observation et l’arrivée tardive. Ils couvrent aussi la reprise après une vraie coupure du serveur avec SQLite, les brouillons lors d’une bascule de mode, les liens invalides et le clavier à 320 px. Les écrans principaux font l’objet de contrôles automatisés axe.

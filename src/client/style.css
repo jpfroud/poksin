@@ -1468,6 +1468,22 @@ button.ticket-row:hover:not(:disabled) {
   }
 }
 
+@media (max-width: 350px) {
+  .room-header-inner {
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    padding-block: 0.35rem;
+  }
+  .room-header-inner .brand {
+    gap: 0.35rem;
+    font-size: 1.35rem;
+  }
+  .room-header-inner .brand-mark {
+    width: 30px;
+    height: 30px;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

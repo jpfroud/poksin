@@ -105,7 +105,7 @@ test('deux participants estiment dans les deux modes et enrichissent la file en 
 test('la salle est accessible sur mobile et le build sert les en-têtes attendus', async ({
   page,
 }) => {
-  await page.setViewportSize({ width: 390, height: 844 });
+  await page.setViewportSize({ width: 320, height: 844 });
   await page.emulateMedia({ reducedMotion: 'reduce' });
   const { roomUrl } = await createRoom(page, 'Sasha');
   const response = await page.goto(roomUrl);
@@ -124,6 +124,7 @@ test('la salle est accessible sur mobile et le build sert les en-têtes attendus
   await vote.focus();
   await page.keyboard.press('Space');
   await expect(vote).toHaveAttribute('aria-pressed', 'true');
+  await expect(vote).toBeFocused();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
     true,
   );
