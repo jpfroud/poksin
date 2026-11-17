@@ -1,0 +1,18 @@
+rules:
+  - id: poksin.no-runtime-code-evaluation
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: Garder l’exécution de code dynamique hors des données de salle.
+    pattern-either:
+      - pattern: eval(...)
+      - pattern: new Function(...)
+
+  - id: poksin.render-room-data-as-text
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: Rendre les noms, notes et tickets des participants comme du texte.
+    pattern-either:
+      - pattern: $ELEMENT.innerHTML = $VALUE
+      - pattern: $ELEMENT.outerHTML = $VALUE
+      - pattern: $ELEMENT.insertAdjacentHTML(...)
+      - pattern-regex: '\bdangerouslySetInnerHTML\s*[:=]'

@@ -1,0 +1,175 @@
+name: Dependabot auto-merge
+
+on:
+  workflow_run:
+    workflows: [Poksin CI]
+    types: [completed]
+
+permissions: {}
+
+jobs:
+  enable:
+    name: Enable eligible Dependabot updates
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.actor.login == 'dependabot[bot]' &&
+      github.event.workflow_run.head_repository.id == github.event.repository.id
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: write
+      pull-requests: write
+    steps:
+      # Read GitHub API records only. Never check out PR code or use its artifacts or cache.
+      - name: Verify workflow success and classify the exact pull request head
+        id: classify
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const { isDeepStrictEqual } = require('node:util');
+            const manual = (reason) => core.notice(`Revue manuelle. ${reason}`);
+            const run = context.payload.workflow_run;
+            const repository = context.payload.repository;
+            const workflowPath = '.github/workflows/ci.yml';
+            const { data: workflow } = await github.rest.actions.getWorkflow({
+              ...context.repo, workflow_id: 'ci.yml',
+            });
+            if (workflow.id !== run.workflow_id || workflow.path !== workflowPath ||
+                run.path?.split('@')[0] !== workflowPath ||
+                run.repository.id !== repository.id || run.head_repository.id !== repository.id) {
+              return manual('L’origine du contrôle CI ne correspond pas à Poksin CI.');
+            }
+            const related = run.pull_requests?.filter((candidate) =>
+              candidate.head.repo.id === repository.id && candidate.base.repo.id === repository.id &&
+              candidate.base.ref === repository.default_branch) ?? [];
+            if (related.length !== 1) return manual('La PR courante associée au contrôle CI est indéterminée.');
+            const candidate = related[0];
+            const params = { ...context.repo, pull_number: candidate.number };
+            const { data: pr } = await github.rest.pulls.get(params);
+            if (pr.state !== 'open' || pr.draft || pr.user.login !== 'dependabot[bot]' ||
+                pr.user.type !== 'Bot' || !pr.head.ref.startsWith('dependabot/npm_and_yarn/') ||
+                pr.head.repo?.id !== repository.id || pr.base.repo.id !== repository.id ||
+                pr.base.ref !== repository.default_branch || pr.head.sha !== candidate.head.sha ||
+                ![pr.head.sha, pr.merge_commit_sha].includes(run.head_sha)) {
+              return manual('La PR Dependabot ou sa révision a changé.');
+            }
+            if (/maintainer changes/i.test(pr.body ?? '')) return manual('Un mainteneur de dépendance a changé.');
+
+            const jobs = await github.paginate(
+              'GET /repos/{owner}/{repo}/actions/runs/{run_id}/attempts/{attempt_number}/jobs',
+              { ...context.repo, run_id: run.id, attempt_number: run.run_attempt },
+            );
+            const gate = jobs.filter((job) => job.name === 'poksin-ci');
+            if (gate.length !== 1 || gate[0].conclusion !== 'success') {
+              return manual('Le check requis n’a pas réussi pour cette exécution.');
+            }
+
+            const allowedFiles = new Set(['package.json', 'package-lock.json']);
+            const files = await github.paginate(github.rest.pulls.listFiles, params);
+            if (!files.some((file) => file.filename === 'package-lock.json') ||
+                files.some((file) => file.status !== 'modified' || !allowedFiles.has(file.filename))) {
+              return manual('Les fichiers modifiés dépassent les manifestes npm attendus.');
+            }
+            const commits = await github.paginate(github.rest.pulls.listCommits, params);
+            if (commits.length !== pr.commits || commits.at(-1)?.sha !== pr.head.sha ||
+                commits.some(({ author, commit }) => author?.login !== 'dependabot[bot]' ||
+                  commit.verification?.verified !== true)) {
+              return manual('La signature ou l’auteur d’un commit ne correspond pas à Dependabot.');
+            }
+
+            const { data: comparison } = await github.request('GET /repos/{owner}/{repo}/compare/{basehead}', {
+              ...context.repo, basehead: `${pr.base.sha}...${pr.head.sha}`,
+            });
+            const readManifest = async (path, ref) => {
+              const { data } = await github.rest.repos.getContent({ ...context.repo, path, ref });
+              if (data.type !== 'file' || data.encoding !== 'base64') throw new Error('Manifeste illisible.');
+              return JSON.parse(Buffer.from(data.content, 'base64').toString('utf8'));
+            };
+            const base = comparison.merge_base_commit.sha;
+            const [beforeManifest, afterManifest, beforeLock, afterLock] = await Promise.all([
+              readManifest('package.json', base), readManifest('package.json', pr.head.sha),
+              readManifest('package-lock.json', base), readManifest('package-lock.json', pr.head.sha),
+            ]);
+            const { dependencies: oldProd = {}, devDependencies: oldDev = {}, ...oldFields } = beforeManifest;
+            const { dependencies: newProd = {}, devDependencies: newDev = {}, ...newFields } = afterManifest;
+            if (!isDeepStrictEqual(oldFields, newFields) || beforeLock.lockfileVersion !== 3 ||
+                afterLock.lockfileVersion !== 3 || !beforeLock.packages || !afterLock.packages) {
+              return manual('Un réglage du manifeste ou le format du verrou npm a changé.');
+            }
+
+            const stableVersion = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
+            const classifyVersion = (before, after) => {
+              const oldParts = stableVersion.exec(before)?.slice(1).map(Number);
+              const newParts = stableVersion.exec(after)?.slice(1).map(Number);
+              if (!oldParts || !newParts || oldParts[0] !== newParts[0]) return null;
+              if (oldParts[0] > 0 && newParts[1] > oldParts[1]) return 'minor';
+              if (newParts[1] === oldParts[1] && newParts[2] > oldParts[2]) return 'patch';
+              return null;
+            };
+            const updates = new Map();
+            for (const path of Object.keys({ ...beforeLock.packages, ...afterLock.packages })) {
+              if (path === '') continue;
+              const before = beforeLock.packages[path];
+              const after = afterLock.packages[path];
+              if (isDeepStrictEqual(before, after)) continue;
+              const change = classifyVersion(before?.version, after?.version);
+              if (!change || !after.resolved?.startsWith('https://registry.npmjs.org/') ||
+                  !after.integrity?.startsWith('sha512-')) {
+                return manual('Le verrou contient une version majeure, inconnue ou une provenance hors des règles.');
+              }
+              updates.set(path, change);
+            }
+
+            const allowedDirect = new Set(['react', 'react-dom', '@types/react', '@types/react-dom']);
+            const directUpdates = new Set();
+            for (const [before, after] of [[oldProd, newProd], [oldDev, newDev]]) {
+              for (const name of Object.keys({ ...before, ...after })) {
+                const path = `node_modules/${name}`;
+                if (before[name] === after[name] && !updates.has(path)) continue;
+                if (!allowedDirect.has(name) || !updates.has(path) ||
+                    !Object.hasOwn(before, name) || !Object.hasOwn(after, name)) {
+                  return manual('Une dépendance directe sort du groupe React autorisé.');
+                }
+                const version = afterLock.packages[path].version;
+                if (before[name] !== after[name] &&
+                    !['', '^', '~'].some((range) => after[name] === `${range}${version}`)) {
+                  return manual('Une contrainte modifiée ne correspond pas à la version du verrou.');
+                }
+                directUpdates.add(name);
+              }
+            }
+            if (directUpdates.size === 0) return manual('Aucune mise à jour directe React n’est confirmée.');
+            const highest = [...updates.values()].includes('minor') ? 'minor' : 'patch';
+
+            const { data: settings } = await github.rest.repos.get(context.repo);
+            const rules = await github.paginate('GET /repos/{owner}/{repo}/rules/branches/{branch}', {
+              ...context.repo, branch: pr.base.ref,
+            });
+            const queue = rules.some((rule) => rule.type === 'merge_queue');
+            const requiredGate = rules.some((rule) => rule.type === 'required_status_checks' &&
+              (queue || rule.parameters?.strict_required_status_checks_policy === true) &&
+              rule.parameters?.required_status_checks?.some((check) =>
+                check.context === 'poksin-ci' && check.integration_id === 15368));
+            if (!settings.allow_auto_merge || (!queue && !settings.allow_squash_merge) ||
+                !rules.some((rule) => rule.type === 'pull_request') || !requiredGate) {
+              return manual('Les réglages GitHub exigés sont décrits dans docs/github.md.');
+            }
+
+            core.info(`Groupe éligible à la fusion après contrôles GitHub (${highest}).`);
+            core.setOutput('eligible', 'true');
+            core.setOutput('queue', queue ? 'true' : 'false');
+            core.setOutput('url', pr.html_url);
+            core.setOutput('head', pr.head.sha);
+      - name: Enable auto-merge subject to branch protection
+        if: steps.classify.outputs.eligible == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_URL: ${{ steps.classify.outputs.url }}
+          PR_HEAD: ${{ steps.classify.outputs.head }}
+          MERGE_QUEUE: ${{ steps.classify.outputs.queue }}
+        run: |
+          args=(--auto --match-head-commit "$PR_HEAD")
+          if [[ "$MERGE_QUEUE" == false ]]; then args+=(--squash); fi
+          gh pr merge "$PR_URL" "${args[@]}"

@@ -2,6 +2,8 @@
 
 L’animateur crée une salle et partage le lien. Les participants choisissent un nom et rejoignent la salle. Chacun peut sélectionner une carte en privé. L’animateur révèle les cartes au groupe, mène la discussion et enregistre la valeur retenue. [Parcours public TeamRetro](https://planning-poker.teamretro.com/faq/)
 
+La création, la participation et la reprise se font sans compte. La salle expire 90 jours après la dernière activité. [Conservation TeamRetro](https://help.teamretro.com/article/463-planning-poker-privacy-security)
+
 ## Critères d’acceptation du premier parcours
 
 1. Un animateur crée une salle et un invité la rejoint depuis un autre navigateur. Les deux voient la présence et le sujet courant.

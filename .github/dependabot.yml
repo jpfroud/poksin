@@ -1,0 +1,32 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 6
+    groups:
+      react:
+        patterns: [react, react-dom, '@types/react', '@types/react-dom']
+        update-types: [minor, patch]
+      vite:
+        patterns: [vite, '@vitejs/plugin-react']
+        update-types: [minor, patch]
+      vitest:
+        patterns: [vitest, '@vitest/*']
+        update-types: [minor, patch]
+      playwright:
+        patterns: ['@playwright/test', playwright, playwright-core]
+        update-types: [minor, patch]
+
+  - package-ecosystem: npm
+    directory: /tooling/gstack
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 2
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3

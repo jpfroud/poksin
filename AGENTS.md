@@ -45,13 +45,17 @@ Garder les nouveaux hooks versionnés et conserver les hooks préexistants.
 | Préparer GStack sous macOS ou Linux | `bash scripts/gstack-prepare.sh` |
 | Vérifier la préparation | `node scripts/gstack-status.cjs` |
 | Tester les scripts de hook | `node --test tests/gstack-hooks.test.cjs` |
+| Construire puis démarrer | `npm ci`, `npm run build`, `npm start` |
+| Contrôles rapides | `npm run check:quick` |
+| Contrôles complets | `npm run check` |
+| Tester le build au navigateur | `npm run build` puis `npm run test:e2e` |
 
-Ajouter les commandes rapides et complètes à ce tableau dès le premier incrément exécutable.
 Garder leurs scripts cohérents avec les tâches réellement exécutées par GitHub Actions.
 
 ## Parcours et interface
 
 Lire [docs/parcours.md](docs/parcours.md) avant de concevoir ou de modifier le déroulement d’une salle.
+Lire [DESIGN.md](DESIGN.md) pour les changements d’interface et [docs/exploitation.md](docs/exploitation.md) pour l’API, la persistance ou le déploiement.
 La salle doit conserver les estimations, le contexte de vote et la file lors des actions adjacentes.
 Un ticket s’ajoute depuis la session et la file reste accessible après un passage en mode Libre.
 Un vote masqué reste privé côté serveur jusqu’à la révélation.
