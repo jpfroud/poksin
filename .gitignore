@@ -1,0 +1,13 @@
+/.cache/
+/.agents/skills/gstack/
+/.agents/skills/gstack-*/
+/.claude/skills/gstack/
+/node_modules/
+/tooling/gstack/node_modules/
+/.env
+/.env.*
+!/.env.example
+/dist/
+/coverage/
+/playwright-report/
+/test-results/

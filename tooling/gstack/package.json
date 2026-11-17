@@ -1,0 +1,7 @@
+{
+  "name": "poksin-gstack-tools",
+  "private": true,
+  "dependencies": {
+    "bun": "1.4.2"
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$(git rev-parse --show-toplevel)/.codex/hooks/gstack.cjs\"",
+            "timeout": 10,
+            "statusMessage": "Vérification de GStack"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$(git rev-parse --show-toplevel)/.codex/hooks/gstack.cjs\"",
+            "timeout": 10,
+            "statusMessage": "Routage GStack"
+          }
+        ]
+      }
+    ]
+  }
+}
