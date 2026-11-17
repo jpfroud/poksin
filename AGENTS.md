@@ -97,6 +97,12 @@ Le workflow privilégié examine les métadonnées et les fichiers modifiés san
 Vérifier une PR de bot réelle pour établir que les tests et les protections s’appliquent.
 Lire [docs/reference-retrogemini.md](docs/reference-retrogemini.md) pour les décisions reprises du projet de référence.
 
+## Livraison et OpenShift
+
+La CI construit et scanne l’image `linux/amd64`. Après validation de `poksin-ci`, un tag `vX.Y.Z` correspondant à `package.json` sur `main` publie l’image vérifiée sur Docker Hub et attache à la GitHub Release le YAML OpenShift épinglé par digest.
+Suivre [docs/openshift.md](docs/openshift.md) pour la release, le contrôle du rollout et le retour à une version antérieure.
+Passer `--server` et `--namespace` explicitement lors d’une validation de lab. Le déploiement de production se fait depuis le manifeste de la release et le projet désigné par l’utilisateur.
+
 ## Fin de tâche
 
 - Vérifier le résultat depuis le point d’entrée normal de l’utilisateur lorsque l’application est exécutable.

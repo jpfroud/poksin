@@ -1,12 +1,19 @@
 name: Poksin CI
 
 on:
+  push:
+    branches: [main]
+    tags: ['v*']
   pull_request:
   merge_group:
     types: [checks_requested]
   workflow_dispatch:
 
 permissions: {}
+
+defaults:
+  run:
+    shell: bash
 
 jobs:
   quality:
@@ -27,6 +34,11 @@ jobs:
       - run: npm run check:quick
       - run: npm run test:coverage
       - run: npm run build
+      - name: Verify the release manifest renders
+        run: |
+          node scripts/render-openshift.mjs \
+            docker.io/example/poksin@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+            > "$RUNNER_TEMP/poksin-openshift.yaml"
 
   e2e:
     name: Production E2E
@@ -90,10 +102,78 @@ jobs:
             docker.io/semgrep/semgrep:1.185.0@sha256:67518c174185a2043fdbed16c70631b79209499b3671178e7194379b48295a0d \
             semgrep scan --config policy.yml --metrics off --disable-version-check --strict --error application
 
+  container:
+    name: Container build, smoke test and vulnerability scan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    outputs:
+      image-id: ${{ steps.image.outputs.id }}
+    env:
+      CANDIDATE_IMAGE: poksin-ci:${{ github.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify the version tag
+        if: ${{ github.event_name == 'push' && github.ref_type == 'tag' }}
+        run: |
+          version=$(jq -er .version package.json)
+          [[ "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          [[ "$GITHUB_REF_NAME" == "v$version" ]]
+          git merge-base --is-ancestor HEAD refs/remotes/origin/main
+      - name: Build the image
+        id: image
+        run: |
+          docker build --platform linux/amd64 --provenance=false \
+            --label "org.opencontainers.image.version=$(jq -er .version package.json)" \
+            --label "org.opencontainers.image.revision=$GITHUB_SHA" \
+            --label "org.opencontainers.image.source=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
+            --tag "$CANDIDATE_IMAGE" .
+          docker image inspect --format 'id={{.Id}}' "$CANDIDATE_IMAGE" >> "$GITHUB_OUTPUT"
+      - name: Start and exercise the image with an assigned non-root UID
+        run: |
+          container=$(docker run --detach --user 1000710000:0 \
+            --cap-drop ALL --security-opt no-new-privileges --read-only \
+            --tmpfs /var/lib/poksin:rw,nosuid,nodev,noexec,uid=1000710000,gid=0,mode=0770 \
+            --publish 127.0.0.1::8080 "$CANDIDATE_IMAGE")
+          trap 'docker logs "$container" >&2; docker rm --force "$container" >/dev/null' EXIT
+          endpoint="http://$(docker port "$container" 8080/tcp)"
+          curl --fail --silent --show-error --retry 20 --retry-connrefused \
+            --retry-max-time 25 --max-time 5 "$endpoint/healthz" | jq -e '.ok == true'
+          curl --fail --silent --show-error --max-time 5 "$endpoint/" | grep -F '<title>Poksin'
+          curl --fail --silent --show-error --max-time 5 \
+            -H 'Content-Type: application/json' \
+            -d '{"name":"Vérification CI","title":"Test du conteneur"}' "$endpoint/api/rooms" |
+            jq -e '.id | test("^[a-f0-9]{24}$")'
+      - name: Reject fixable high and critical container vulnerabilities
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ env.CANDIDATE_IMAGE }}
+          format: table
+          exit-code: '1'
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+      - name: Save the verified release image
+        if: ${{ github.event_name == 'push' && github.ref_type == 'tag' }}
+        run: docker image save --output "$RUNNER_TEMP/poksin-image.tar" "$CANDIDATE_IMAGE"
+      - name: Transfer the verified release image
+        if: ${{ github.event_name == 'push' && github.ref_type == 'tag' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: poksin-release-image
+          path: ${{ runner.temp }}/poksin-image.tar
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 7
+
   gate:
     name: poksin-ci
     if: ${{ always() }}
-    needs: [quality, e2e, security]
+    needs: [quality, e2e, security, container]
     runs-on: ubuntu-24.04
     timeout-minutes: 3
     steps:
@@ -102,6 +182,99 @@ jobs:
           QUALITY: ${{ needs.quality.result }}
           E2E: ${{ needs.e2e.result }}
           SECURITY: ${{ needs.security.result }}
+          CONTAINER: ${{ needs.container.result }}
         run: |
-          printf 'quality=%s\ne2e=%s\nsecurity=%s\n' "$QUALITY" "$E2E" "$SECURITY"
-          [[ "$QUALITY" == success && "$E2E" == success && "$SECURITY" == success ]]
+          printf 'quality=%s\ne2e=%s\nsecurity=%s\ncontainer=%s\n' "$QUALITY" "$E2E" "$SECURITY" "$CONTAINER"
+          [[ "$QUALITY" == success && "$E2E" == success && "$SECURITY" == success && "$CONTAINER" == success ]]
+
+  release:
+    name: Publish the Docker Hub image and GitHub release
+    if: ${{ github.event_name == 'push' && github.ref_type == 'tag' }}
+    needs: [gate, container]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    concurrency:
+      group: poksin-release
+      cancel-in-progress: false
+    permissions:
+      contents: write
+    env:
+      CANDIDATE_IMAGE: poksin-ci:${{ github.sha }}
+      IMAGE_ID: ${{ needs.container.outputs.image-id }}
+      DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USERNAME || secrets.DOCKERHUB_USERNAME }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: poksin-release-image
+          path: ${{ runner.temp }}
+      - name: Load the same image that passed CI
+        run: |
+          docker image load --input "$RUNNER_TEMP/poksin-image.tar"
+          [[ "$(docker image inspect --format '{{.Id}}' "$CANDIDATE_IMAGE")" == "$IMAGE_ID" ]]
+      - name: Log in to Docker Hub
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          username: ${{ env.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Push the versioned image and get its registry digest
+        id: registry
+        run: |
+          [[ "$DOCKERHUB_USERNAME" =~ ^[a-z0-9]+([_-][a-z0-9]+)*$ ]]
+          repository="docker.io/$DOCKERHUB_USERNAME/poksin"
+          version="${GITHUB_REF_NAME#v}"
+          versioned="$repository:$version"
+          pull_log="$RUNNER_TEMP/docker-version-pull.log"
+          if docker image pull "$versioned" > "$pull_log" 2>&1; then
+            if [[ "$(docker image inspect --format '{{.Id}}' "$versioned")" != "$IMAGE_ID" ]]; then
+              echo "Le tag $versioned désigne déjà une autre image." >&2
+              exit 1
+            fi
+          elif grep -qiE 'manifest unknown|failed to resolve reference .*: not found' "$pull_log"; then
+            docker image tag "$CANDIDATE_IMAGE" "$versioned"
+            docker image push "$versioned"
+          else
+            cat "$pull_log" >&2
+            exit 1
+          fi
+          digest=$(docker buildx imagetools inspect "$versioned" --format '{{json .Manifest}}' | jq -er .digest)
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          remote_id=$(docker buildx imagetools inspect --raw "$repository@$digest" | jq -er .config.digest)
+          [[ "$remote_id" == "$IMAGE_ID" ]]
+          docker image tag "$versioned" "$repository:latest"
+          docker image push "$repository:latest"
+          printf 'repository=%s\nimage=%s@%s\n' "$repository" "$repository" "$digest" >> "$GITHUB_OUTPUT"
+      - name: Render the release manifest
+        env:
+          IMAGE: ${{ steps.registry.outputs.image }}
+        run: node scripts/render-openshift.mjs "$IMAGE" > "$RUNNER_TEMP/poksin-openshift.yaml"
+      - name: Attach the OpenShift manifest to the tagged release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          IMAGE: ${{ steps.registry.outputs.image }}
+          REPOSITORY: ${{ steps.registry.outputs.repository }}
+        run: |
+          manifest="$RUNNER_TEMP/poksin-openshift.yaml"
+          if release=$(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json assets 2>/dev/null); then
+            if jq -e '.assets | any(.name == "poksin-openshift.yaml")' <<< "$release" >/dev/null; then
+              archived=$(mktemp -d)
+              gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+                --pattern poksin-openshift.yaml --dir "$archived"
+              cmp "$archived/poksin-openshift.yaml" "$manifest"
+            else
+              gh release upload "$GITHUB_REF_NAME" "$manifest" --repo "$GITHUB_REPOSITORY"
+            fi
+          else
+            notes="$RUNNER_TEMP/poksin-release-notes.md"
+            printf 'Image Docker Hub publiée sous le digest %s.\n\nAppliquer le manifeste OpenShift poksin-openshift.yaml.\n' "$IMAGE" > "$notes"
+            gh release create "$GITHUB_REF_NAME" "$manifest" --repo "$GITHUB_REPOSITORY" \
+              --verify-tag --title "Poksin ${GITHUB_REF_NAME#v}" --notes-file "$notes"
+          fi
+          printf 'Tags Docker Hub\n\n- %s:%s\n- %s:latest\n\nImage immuable %s\n' \
+            "$REPOSITORY" "${GITHUB_REF_NAME#v}" "$REPOSITORY" "$IMAGE" >> "$GITHUB_STEP_SUMMARY"

@@ -22,3 +22,5 @@ Ouvrir [Poksin sur le port 3000](http://127.0.0.1:3000). Pour essayer le vote à
 - `npm run dev` sert l’interface Vite. Lancer aussi `npm start` sur le port 3000 pour l’API après `npm run build:server`.
 
 Le développement assisté utilise [GStack](docs/gstack.md). Les [critères d’acceptation](docs/parcours.md), les [choix graphiques](DESIGN.md) et les [détails d’exploitation](docs/exploitation.md) décrivent la première version.
+
+Le [guide OpenShift](docs/openshift.md) décrit les releases Docker Hub et le déploiement du manifeste fourni par GitHub.
