@@ -50,12 +50,13 @@ test('accessibilité automatisée de l’accueil, du vote, du résultat et de l�
   await page.getByRole('button', { name: 'Libre', exact: true }).click();
   await expect(page.getByTestId('round-title')).toHaveText('Estimation libre');
   await checkAccessibility(page, 'Vote');
+  const dialog = page.getByRole('dialog');
   await page.getByRole('button', { name: 'Inviter', exact: true }).click();
-  await expect(page.getByRole('dialog')).toBeVisible();
+  await expect(dialog).toHaveCSS('opacity', '1');
   await checkAccessibility(page, 'Dialogue d’invitation');
   await page.keyboard.press('Escape');
   await page.getByRole('button', { name: 'Réglages de la salle', exact: true }).click();
-  await expect(page.getByRole('dialog')).toBeVisible();
+  await expect(dialog).toHaveCSS('opacity', '1');
   await checkAccessibility(page, 'Réglages des cartes');
   await page.keyboard.press('Escape');
   await page.getByRole('button', { name: 'Voter 3', exact: true }).click();
