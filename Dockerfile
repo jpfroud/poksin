@@ -17,8 +17,11 @@ ENV NODE_ENV=production \
     HOST=0.0.0.0 \
     PORT=8080 \
     POKSIN_DB=/var/lib/poksin/poksin.sqlite
-# Le groupe racine permet l’écriture avec l’UID attribué par OpenShift.
-RUN mkdir -p /var/lib/poksin && chmod 0770 /var/lib/poksin
+# Seul Node est nécessaire pour exécuter le build. Garder npm dans l’étape de construction.
+RUN rm -rf /usr/local/lib/node_modules /opt/yarn-* \
+    && rm -f /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/yarn /usr/local/bin/yarnpkg /usr/local/bin/corepack \
+    && mkdir -p /var/lib/poksin \
+    && chmod 0770 /var/lib/poksin
 COPY package.json ./
 COPY --from=build /app/dist/ dist/
 USER 1000:0
