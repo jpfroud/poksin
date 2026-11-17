@@ -30,6 +30,7 @@ La procédure est dans [docs/gstack.md](docs/gstack.md).
 | Préparer la livraison ou la PR demandée | `ship` |
 
 Employer le nom effectivement annoncé par l’hôte, souvent préfixé `gstack-` dans Codex.
+Dans Codex, lire le routeur généré dans `.agents/skills/gstack/.agents/skills/gstack/SKILL.md` pour utiliser le profil de ce dépôt.
 GStack v1.99.5.0 intègre le diagnostic de bugs au routeur après le retrait de `investigate`.
 Lire [docs/gstack.md](docs/gstack.md) quand les skills, le verrou ou les hooks changent.
 `UserPromptSubmit` rappelle le routage dans Codex pour les demandes de toute langue.

@@ -30,10 +30,10 @@ function verifyInstallation() {
   accessSync(join(source, 'browse', 'dist', browse));
   accessSync(join(project, 'tooling', 'gstack', 'node_modules', 'bun', 'bin', bun));
   accessSync(join(source, 'bin', 'gstack-skill-start'));
-  const skills = ['gstack', 'office-hours', 'plan-eng-review', 'design-consultation', 'review', 'qa', 'qa-only', 'ship'];
+  accessSync(join(source, '.agents', 'skills', 'gstack', 'SKILL.md'));
+  const skills = ['office-hours', 'plan-eng-review', 'design-consultation', 'review', 'qa', 'qa-only', 'ship'];
   for (const skill of skills) {
-    const directory = skill === 'gstack' ? skill : `gstack-${skill}`;
-    accessSync(join(source, '..', directory, 'SKILL.md'));
+    accessSync(join(source, '..', `gstack-${skill}`, 'SKILL.md'));
   }
 }
 
