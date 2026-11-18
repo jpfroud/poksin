@@ -11,6 +11,7 @@ if (!Number.isInteger(port) || port < 1 || port > 65_535)
 const app = createPoksinServer({
   databasePath: database === ':memory:' ? database : resolve(database),
   secureCookies: process.env.POKSIN_SECURE_COOKIES === '1',
+  publicUrl: process.env.POKSIN_PUBLIC_URL,
 });
 
 app.server.on('error', (error: Error) => {

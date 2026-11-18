@@ -19,6 +19,7 @@ interface ServerOptions {
   databasePath: string;
   clientDirectory?: string;
   secureCookies?: boolean;
+  publicUrl?: string;
   now?: () => number;
 }
 
@@ -117,8 +118,14 @@ function getToken(request: IncomingMessage, roomId: string) {
     ?.slice(prefix.length);
 }
 
-function setToken(response: ServerResponse, roomId: string, token: string, secure: boolean) {
-  const attributes = `Path=/api/rooms/${roomId}; HttpOnly; SameSite=Lax; Max-Age=${SEAT_COOKIE_SECONDS}`;
+function setToken(
+  response: ServerResponse,
+  roomId: string,
+  token: string,
+  secure: boolean,
+  publicBase: string,
+) {
+  const attributes = `Path=${publicBase}/api/rooms/${roomId}; HttpOnly; SameSite=Lax; Max-Age=${SEAT_COOKIE_SECONDS}`;
   response.setHeader(
     'Set-Cookie',
     `${roomCookie(roomId)}=${token}; ${attributes}${secure ? '; Secure' : ''}`,
@@ -136,13 +143,17 @@ async function staticPage(
   response: ServerResponse,
   pathname: string,
   directory: string,
+  publicBase: string,
+  knownPublicBase: string,
 ) {
   if (request.method !== 'GET' && request.method !== 'HEAD') {
     throw new ClientError(405, 'Cette méthode n’est pas disponible.');
   }
   if (pathname === '/robots.txt') {
     response.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
-    return response.end('User-agent: *\nDisallow: /salle/\nDisallow: /api/\n');
+    return response.end(
+      `User-agent: *\nDisallow: ${publicBase}/salle/\nDisallow: ${publicBase}/api/\n`,
+    );
   }
   const validPage = pathname === '/' || roomPage.test(pathname);
   const index = validPage || pathname === '/salle' || pathname.startsWith('/salle/');
@@ -153,7 +164,17 @@ async function staticPage(
   if ((!index && !asset && !icon) || !contentType)
     throw new ClientError(404, 'Cette page est introuvable.');
   try {
-    const contents = await readFile(join(directory, file));
+    let contents = await readFile(join(directory, file));
+    if (index) {
+      const html = contents
+        .toString('utf8')
+        .replace(
+          'name="poksin-base" content="/" data-public-base=""',
+          `name="poksin-base" content="${publicBase}/" data-public-base="${knownPublicBase}"`,
+        )
+        .replace(/\b(src|href)="\.\//g, `$1="${publicBase}/`);
+      contents = Buffer.from(html);
+    }
     response.writeHead(index && !validPage ? 404 : 200, {
       'Content-Type': contentType,
       'Content-Length': contents.length,
@@ -171,8 +192,21 @@ export function createPoksinServer({
   databasePath,
   clientDirectory = fileURLToPath(new URL('../client/', import.meta.url)),
   secureCookies = false,
+  publicUrl,
   now = Date.now,
 }: ServerOptions) {
+  const publicAddress = publicUrl ? new URL(publicUrl) : undefined;
+  if (
+    publicAddress &&
+    (!['http:', 'https:'].includes(publicAddress.protocol) ||
+      publicAddress.username ||
+      publicAddress.password ||
+      publicAddress.search ||
+      publicAddress.hash ||
+      !/^(?:\/[a-zA-Z0-9_-]+)*\/?$/.test(publicAddress.pathname))
+  )
+    throw new Error('Variable POKSIN_PUBLIC_URL invalide.');
+  const publicPath = publicAddress?.pathname.replace(/\/$/, '') ?? '';
   const store = new RoomStore(databasePath);
   const streams = new Map<string, Map<ServerResponse, Stream>>();
   let stopping = false;
@@ -268,6 +302,9 @@ export function createPoksinServer({
     if (!url.startsWith('/') || url.startsWith('//'))
       throw new ClientError(400, 'Adresse de requête invalide.');
     const { pathname } = new URL(url, 'http://localhost');
+    // The configured reverse proxy preserves Host and strips its public path.
+    const publicBase =
+      publicAddress?.host === request.headers.host?.toLowerCase() ? publicPath : '';
     const method = request.method;
     if (pathname === '/healthz' && (method === 'GET' || method === 'HEAD'))
       return json(response, 200, { ok: true });
@@ -275,7 +312,7 @@ export function createPoksinServer({
       const { name, title } = parseCreate(await body(request));
       const { room, seat } = createRoom(name, title);
       store.create(room, now());
-      setToken(response, room.id, seat.token, secureCookies);
+      setToken(response, room.id, seat.token, secureCookies, publicBase);
       return json(response, 201, roomView(room, seat.participant, online(room.id)));
     }
     const match = apiRoom.exec(pathname);
@@ -289,7 +326,7 @@ export function createPoksinServer({
           const known = getParticipant(current, token);
           return known && token ? { participant: known, token } : addParticipant(current, details);
         });
-        setToken(response, roomId, seat.token, secureCookies);
+        setToken(response, roomId, seat.token, secureCookies, publicBase);
         broadcast(room);
         return json(response, 200, roomView(room, seat.participant, online(roomId)));
       }
@@ -303,7 +340,7 @@ export function createPoksinServer({
           applyAction(current, actor, action, present, instant);
           return actor;
         });
-        setToken(response, roomId, token!, secureCookies);
+        setToken(response, roomId, token!, secureCookies, publicBase);
         broadcast(room);
         return json(response, 200, roomView(room, participant, online(roomId)));
       }
@@ -313,14 +350,14 @@ export function createPoksinServer({
         const room = store.read(roomId, instant);
         const participant = requireSeat(room, token);
         store.touch(roomId, instant);
-        setToken(response, roomId, token!, secureCookies);
+        setToken(response, roomId, token!, secureCookies, publicBase);
         if (path === 'events') return connect(room, participant.id, response);
         return json(response, 200, roomView(room, participant, online(roomId)));
       }
       throw new ClientError(405, 'Cette méthode n’est pas disponible.');
     }
     if (pathname.startsWith('/api/')) throw new ClientError(404, 'Cette adresse est introuvable.');
-    return staticPage(request, response, pathname, clientDirectory);
+    return staticPage(request, response, pathname, clientDirectory, publicBase, publicPath);
   }
 
   const server = createServer(

@@ -57,6 +57,12 @@ spec:
               value: /var/lib/poksin/poksin.sqlite
             - name: POKSIN_SECURE_COOKIES
               value: '1'
+            - name: POKSIN_PUBLIC_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: poksin-config
+                  key: POKSIN_PUBLIC_URL
+                  optional: true
           ports:
             - name: http
               containerPort: 8080

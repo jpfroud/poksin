@@ -1,4 +1,5 @@
 import { once } from 'node:events';
+import { request as httpRequest, type IncomingHttpHeaders } from 'node:http';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -86,6 +87,79 @@ async function stream(url: string, seat: string) {
 }
 
 describe('Serveur Poksin', () => {
+  it('adapte les ressources et cookies à l’hôte public configuré après réécriture du proxy', async () => {
+    const clientDirectory = await fixtureDirectory();
+    await writeFile(
+      join(clientDirectory, 'index.html'),
+      '<meta name="poksin-base" content="/" data-public-base=""><script src="./assets/app.js"></script><link href="./favicon.png">',
+    );
+    const { url, post, read } = await start({
+      clientDirectory,
+      publicUrl: 'https://poker.example.test/poksin/',
+    });
+    const publicRequest = (path: string, body?: unknown) =>
+      new Promise<{ status: number; headers: IncomingHttpHeaders; body: string }>(
+        (resolve, reject) => {
+          const request = httpRequest(
+            `${url}${path}`,
+            {
+              method: body === undefined ? 'GET' : 'POST',
+              headers: {
+                Host: 'poker.example.test',
+                Origin: 'https://poker.example.test',
+                'Content-Type': 'application/json',
+              },
+            },
+            (response) => {
+              const chunks: Buffer[] = [];
+              response.on('data', (chunk: Buffer) => chunks.push(chunk));
+              response.on('end', () =>
+                resolve({
+                  status: response.statusCode!,
+                  headers: response.headers,
+                  body: Buffer.concat(chunks).toString('utf8'),
+                }),
+              );
+              response.on('error', reject);
+            },
+          );
+          request.on('error', reject);
+          request.end(body === undefined ? undefined : JSON.stringify(body));
+        },
+      );
+    const nativeHtml = await read(`/salle/${'0'.repeat(24)}`);
+    expect(await nativeHtml.text()).toContain('content="/" data-public-base="/poksin"');
+    const html = await publicRequest(`/salle/${'0'.repeat(24)}`);
+    expect(html.status).toBe(200);
+    expect(html.headers['content-security-policy']).toContain("base-uri 'none'");
+    const markup = html.body;
+    expect(markup).toContain('content="/poksin/" data-public-base="/poksin"');
+    expect(markup).toContain('src="/poksin/assets/app.js"');
+    expect(markup).toContain('href="/poksin/favicon.png"');
+    const made = await publicRequest('/api/rooms', { name: 'Léa' });
+    expect(made.status).toBe(201);
+    const room = JSON.parse(made.body) as View;
+    expect(made.headers['set-cookie']?.[0]).toContain(`Path=/poksin/api/rooms/${room.id};`);
+    const nativeRoom = await post('/api/rooms', { name: 'Nora' });
+    expect(nativeRoom.headers.get('set-cookie')).toContain(
+      `Path=/api/rooms/${(await view(nativeRoom, 201)).id};`,
+    );
+    const forged = await fetch(`${url}/`, {
+      headers: { 'X-Forwarded-Host': 'poker.example.test', 'X-Forwarded-Prefix': '/elsewhere' },
+    });
+    expect(await forged.text()).toContain('content="/" data-public-base="/poksin"');
+  });
+
+  it.each([
+    'ftp://poker.example.test/poksin',
+    'https://user:password@poker.example.test/poksin',
+    'https://poker.example.test/poksin?x=1',
+    'https://poker.example.test/poksin#fragment',
+    'https://poker.example.test/a%22b',
+  ])('refuse une URL publique impropre %s', (publicUrl) => {
+    expect(() => createPoksinServer({ databasePath: ':memory:', publicUrl })).toThrow();
+  });
+
   it('diffuse la présence et masque les votes des autres jusqu’à la révélation', async () => {
     const { url, post, read } = await start();
     const made = await post('/api/rooms', { name: 'Nora' });

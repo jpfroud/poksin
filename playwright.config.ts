@@ -18,15 +18,23 @@ export default defineConfig({
   projects: [
     { name: 'chromium', use: { ...devices['Desktop Chrome'], ...(channel && { channel }) } },
   ],
-  webServer: {
-    command: 'node dist/server/main.js',
-    url: `${baseURL}/healthz`,
-    reuseExistingServer: false,
-    env: {
-      HOST: '127.0.0.1',
-      PORT: String(port),
-      POKSIN_DB: ':memory:',
-      POKSIN_SECURE_COOKIES: '0',
+  webServer: [
+    {
+      command: 'node dist/server/main.js',
+      url: `${baseURL}/healthz`,
+      reuseExistingServer: false,
+      env: {
+        HOST: '127.0.0.1',
+        PORT: String(port),
+        POKSIN_DB: ':memory:',
+        POKSIN_SECURE_COOKIES: '0',
+        POKSIN_PUBLIC_URL: 'http://127.0.0.1:4184/poksin',
+      },
     },
-  },
+    {
+      command: 'node tests/e2e/prefix-proxy.ts',
+      url: 'http://127.0.0.1:4184/poksin/healthz',
+      reuseExistingServer: false,
+    },
+  ],
 });

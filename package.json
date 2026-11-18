@@ -17,9 +17,10 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:hooks": "node --test tests/gstack-hooks.test.cjs",
+    "test:deployment": "node --test tests/deployment.test.cjs",
     "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
-    "check:quick": "npm run format:check && npm run lint && npm run typecheck && npm run test:hooks && npm test",
+    "check:quick": "npm run format:check && npm run lint && npm run typecheck && npm run test:hooks && npm run test:deployment && npm test",
     "check": "npm run check:quick && npm run test:coverage && npm run build && npm run test:e2e"
   },
   "dependencies": {
