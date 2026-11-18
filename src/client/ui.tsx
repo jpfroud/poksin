@@ -1,9 +1,10 @@
 import { useEffect, useId, useRef, type CSSProperties, type ReactNode } from 'react';
 import { Icon } from './icons';
+import { appPath } from './paths';
 
 export function Logo() {
   return (
-    <a href="/" className="brand" aria-label="Poksin, accueil">
+    <a href={appPath('/')} className="brand" aria-label="Poksin, accueil">
       <span className="brand-mark" aria-hidden="true">
         <i />
         <i />

@@ -9,13 +9,18 @@ import { Icon } from './icons';
 import { readRoomId, roomPath, type RoomAction, type RoomView } from './model';
 import { Room } from './Room';
 import { Logo } from './ui';
+import { appBase, appPath } from './paths';
 
 type Screen = 'home' | 'loading' | 'join' | 'room' | 'missing' | 'error';
 
 function App() {
   const [id, setId] = useState(() => readRoomId(window.location.pathname));
   const [screen, setScreen] = useState<Screen>(() =>
-    id ? 'loading' : window.location.pathname === '/' ? 'home' : 'missing',
+    id
+      ? 'loading'
+      : [appBase, appPath('/')].includes(window.location.pathname)
+        ? 'home'
+        : 'missing',
   );
   const [connected, setConnected] = useState(false);
   const [room, setRoom] = useState<RoomView | null>(null);
@@ -125,7 +130,7 @@ function App() {
           </>
         )}
         {screen === 'missing' && (
-          <a className="button button-outline" href="/">
+          <a className="button button-outline" href={appPath('/')}>
             <Icon name="back" size={17} /> Revenir à l’accueil
           </a>
         )}

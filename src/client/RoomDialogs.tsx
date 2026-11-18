@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { errorMessage } from './api';
 import { Icon } from './icons';
-import { presets, type Card, type Deck, type RoomAction, type RoomView } from './model';
+import { presets, roomPath, type Card, type Deck, type RoomAction, type RoomView } from './model';
 import { colorStyle, Dialog, ErrorNotice } from './ui';
 
 type Dispatch = (action: RoomAction) => Promise<void>;
@@ -269,7 +269,7 @@ export function SettingsDialog({
 
 export function ShareDialog({ roomId, onClose }: { roomId: string; onClose: () => void }) {
   const [copied, setCopied] = useState(false);
-  const url = new URL(`/salle/${encodeURIComponent(roomId)}`, window.location.origin).href;
+  const url = new URL(roomPath(roomId), window.location.origin).href;
 
   async function copy() {
     if (!navigator.clipboard) return;

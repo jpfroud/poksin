@@ -1,4 +1,5 @@
 import type { RoomAction, RoomView } from './model';
+import { appPath } from './paths';
 
 export class ApiError extends Error {
   constructor(
@@ -9,7 +10,8 @@ export class ApiError extends Error {
   }
 }
 
-export const roomApi = (id: string, suffix = '') => `/api/rooms/${encodeURIComponent(id)}${suffix}`;
+export const roomApi = (id: string, suffix = '') =>
+  appPath(`/api/rooms/${encodeURIComponent(id)}${suffix}`);
 
 async function request(path: string, body?: unknown, signal?: AbortSignal): Promise<RoomView> {
   let response: Response;
@@ -47,7 +49,7 @@ async function request(path: string, body?: unknown, signal?: AbortSignal): Prom
 export const loadRoom = (id: string, signal?: AbortSignal) =>
   request(roomApi(id), undefined, signal);
 export const createRoom = (name: string, title: string) =>
-  request('/api/rooms', { name, ...(title ? { title } : {}) });
+  request(appPath('/api/rooms'), { name, ...(title ? { title } : {}) });
 export const joinRoom = (id: string, name: string, spectator: boolean) =>
   request(roomApi(id, '/join'), { name, spectator });
 export const sendAction = (id: string, action: RoomAction) =>
